@@ -10,6 +10,7 @@ const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...CORS, "Content-Type": "application/json" } });
 
 const GROQ_KEY = Deno.env.get("GROQ_API_KEY") ?? "";
+const WHISPER_MODEL = Deno.env.get("WHISPER_MODEL") ?? "whisper-large-v3";
 const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
   auth: { persistSession: false },
 });
@@ -38,7 +39,7 @@ Deno.serve(async (req) => {
 
     const out = new FormData();
     out.append("file", audio, audio.name || "voice.webm");
-    out.append("model", "whisper-large-v3-turbo");
+    out.append("model", WHISPER_MODEL);
     out.append("response_format", "json");
     out.append("temperature", "0");
     out.append("prompt", (BASE_VOCAB + (extra ? " " + extra : "")).slice(0, 800));
