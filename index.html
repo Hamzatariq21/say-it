@@ -108,6 +108,8 @@ main .wrap { padding-block: 6px 200px; display: flex; flex-direction: column; ga
 .chip.saved { background: var(--accent-soft); color: var(--accent); }
 .chip.usda { background: var(--usda-soft); color: var(--usda); }
 .chip.estimate { background: var(--est-soft); color: var(--est); }
+.chip.label { background: var(--accent); color: var(--accent-ink); }
+.chip.photo { background: transparent; color: var(--muted); border: 1px solid var(--line); padding: 0 5px; }
 .bd { margin-top: 6px; font-size: 12.5px; color: var(--muted); border-left: 2px solid var(--line); padding-left: 8px; display: flex; flex-direction: column; gap: 3px; }
 .bd div { display: flex; justify-content: space-between; gap: 8px; }
 .bd div span:first-child { min-width: 0; overflow-wrap: anywhere; }
@@ -150,6 +152,14 @@ main .wrap { padding-block: 6px 200px; display: flex; flex-direction: column; ga
 .mic.on { background: var(--danger); color: #fff; }
 .mic.on::after { content: ""; position: absolute; inset: -5px; border-radius: 50%; border: 2px solid var(--danger); animation: pulse 1.4s ease-out infinite; }
 .mic.busy { opacity: .6; }
+.cam { flex: none; width: 48px; height: 48px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); color: var(--ink); display: grid; place-items: center; }
+.cam svg { width: 22px; height: 22px; }
+.photobox { display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 6px 6px 6px 6px; }
+.photobox img { width: 56px; height: 56px; object-fit: cover; border-radius: 8px; flex: none; }
+.photobox span { flex: 1; min-width: 0; font-size: 13px; color: var(--muted); }
+.photobox button { border: 0; background: none; font-size: 13px; font-weight: 600; color: var(--danger); padding: 8px; }
+.hthumb { width: 40px; height: 40px; object-fit: cover; border-radius: 6px; flex: none; }
+.heard { display: flex; align-items: center; gap: 8px; }
 @keyframes pulse { from { opacity: .9; transform: scale(.92); } to { opacity: 0; transform: scale(1.25); } }
 @media (prefers-reduced-motion: reduce) { .mic.on::after { animation: none; opacity: .6; } }
 .say textarea { flex: 1; min-width: 0; resize: none; border: 1px solid var(--line); background: var(--surface); border-radius: 14px; padding: 12px 14px; font-size: 16px; line-height: 1.35; max-height: 120px; }
@@ -230,17 +240,23 @@ main .wrap { padding-block: 6px 200px; display: flex; flex-direction: column; ga
   </header>
 
   <main><div class="wrap" id="main"></div></main>
+  <input type="file" id="labelInput" accept="image/*" hidden>
 
   <div class="composer" id="composer">
     <div class="wrap">
       <div id="draft"></div>
       <div class="partial" id="partial" hidden></div>
       <div class="status" id="status" role="status" hidden></div>
+      <div id="photoBox"></div>
       <form class="say" id="sayForm">
         <button type="button" class="mic" id="mic" aria-label="Speak a meal" hidden>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg>
         </button>
-        <textarea id="say" rows="1" placeholder="2 eggs and a paratha" aria-label="What did you eat?"></textarea>
+        <button type="button" class="cam" id="cam" aria-label="Add a photo of your meal or a label">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.5" r="3.5"/></svg>
+        </button>
+        <input type="file" id="photoInput" accept="image/*" hidden>
+        <textarea id="say" rows="1" placeholder="What did you eat?" aria-label="What did you eat?"></textarea>
         <button type="submit" class="go" id="go">Log</button>
       </form>
     </div>
@@ -265,14 +281,16 @@ main .wrap { padding-block: 6px 200px; display: flex; flex-direction: column; ga
   const shiftDate = (s, n) => { const [y, m, d] = s.split("-").map(Number); return dateStr(new Date(y, m - 1, d + n)); };
   const MEALS = ["breakfast", "lunch", "dinner", "snack"];
   const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
-  const SRC = { saved: "My food", usda: "USDA", estimate: "Estimate" };
+  const SRC = { saved: "My food", usda: "USDA", estimate: "Estimate", label: "Label" };
+  const isExact = (d) => d.source === "saved" || d.source === "label";
+  const photoChip = (x) => x.from_photo ? `<span class="chip photo">Photo</span>` : "";
   const rangeTxt = (lo, hi) => Math.round(lo) === Math.round(hi) ? "exact" : `${fmt(lo)} to ${fmt(hi)}`;
 
   const S = {
     user: null, view: "today", date: todayStr(),
     entries: [], dayState: "loading",
     foods: [], goals: { kcal: 2000, protein: 120, carbs: 220, fat: 65 },
-    draft: [], heard: "", busy: false, config: null,
+    draft: [], heard: "", heardPhoto: null, photo: null, busy: false, config: null,
     editing: null, armDelete: null, filter: "", open: new Set(), returnTo: null,
   };
   let reqSeq = 0;
@@ -337,7 +355,7 @@ main .wrap { padding-block: 6px 200px; display: flex; flex-direction: column; ga
       : `<b class="num">${fmt(G.kcal - T.kcal)} kcal</b> left of ${fmt(G.kcal)}`;
     const macroK = T.protein * 4 + T.carbs * 4 + T.fat * 9;
     const mrow = (label, g, goal, k) => `<div class="mrow"><div class="n"><b>${label}</b> <span class="num">${fmt(g)} g${goal ? ` of ${fmt(goal)} g` : ""}</span></div><div class="mini" aria-hidden="true"><i style="width:${goal ? Math.min(100, (g / goal) * 100) : 0}%"></i></div><div class="pct num">${macroK ? Math.round((g * k / macroK) * 100) : 0}%</div></div>`;
-    const counts = { saved: 0, usda: 0, estimate: 0 }; list.forEach((e) => counts[e.source]++);
+    const counts = { saved: 0, usda: 0, estimate: 0, label: 0 }; list.forEach((e) => counts[e.source]++);
     return `<section class="facts" aria-label="Day totals">
       <div class="hd"><h2>Nutrition Facts</h2><span class="num">${list.length} item${list.length === 1 ? "" : "s"}</span></div>
       <div class="rule-xl"></div>
@@ -354,7 +372,7 @@ main .wrap { padding-block: 6px 200px; display: flex; flex-direction: column; ga
       ${mrow("Carbs", T.carbs, G.carbs, 4)}
       ${mrow("Total fat", T.fat, G.fat, 9)}
       <div class="rule-xl" style="height:6px"></div>
-      <div class="foot"><span><span class="chip saved">My food</span> ${counts.saved}</span><span><span class="chip usda">USDA</span> ${counts.usda}</span><span><span class="chip estimate">Estimate</span> ${counts.estimate}</span></div>
+      <div class="foot"><span><span class="chip saved">My food</span> ${counts.saved}</span><span><span class="chip usda">USDA</span> ${counts.usda}</span><span><span class="chip estimate">Estimate</span> ${counts.estimate}</span>${counts.label ? `<span><span class="chip label">Label</span> ${counts.label}</span>` : ""}</div>
     </section>`;
   }
 
@@ -384,7 +402,7 @@ main .wrap { padding-block: 6px 200px; display: flex; flex-direction: column; ga
           const armed = S.armDelete === e.id, open = S.open.has(e.id);
           html += `<li><span class="t num">${esc(String(e.eaten_at).slice(0, 5))}</span>
             <div class="nm"><b>${esc(e.name)}</b>
-              <div class="sub"><span class="chip ${esc(e.source)}">${SRC[e.source] || e.source}</span>${e.portion ? `<span>${esc(e.portion)}</span>` : ""}<span class="num">P ${fmt(e.protein)} · C ${fmt(e.carbs)} · F ${fmt(e.fat)}</span></div>
+              <div class="sub"><span class="chip ${esc(e.source)}">${SRC[e.source] || e.source}</span>${photoChip(e)}${e.portion ? `<span>${esc(e.portion)}</span>` : ""}<span class="num">P ${fmt(e.protein)} · C ${fmt(e.carbs)} · F ${fmt(e.fat)}</span></div>
               ${open ? breakdownHTML(e.breakdown) : ""}
               <div class="acts">
                 ${Array.isArray(e.breakdown) && e.breakdown.length ? `<button type="button" class="link" data-act="toggle" data-id="${e.id}">${open ? "Hide" : "Show"} ingredients</button>` : ""}
@@ -392,7 +410,7 @@ main .wrap { padding-block: 6px 200px; display: flex; flex-direction: column; ga
                 <button type="button" class="link del" data-act="del-entry" data-id="${e.id}">${armed ? "Tap again to remove" : "Remove"}</button>
               </div>
             </div>
-            <span class="kc num">${fmt(e.kcal)}<small>${e.source === "saved" ? "kcal" : esc(rangeTxt(e.kcal_low, e.kcal_high))}</small></span></li>`;
+            <span class="kc num">${fmt(e.kcal)}<small>${isExact(e) ? "kcal" : esc(rangeTxt(e.kcal_low, e.kcal_high))}</small></span></li>`;
         });
         html += `</ul></section>`;
       });
@@ -405,8 +423,8 @@ main .wrap { padding-block: 6px 200px; display: flex; flex-direction: column; ga
     return `<section class="panel" aria-label="${f.id ? "Edit food" : "Add a food"}">
       <h2>${f.id ? "Edit food" : "Add a food"}</h2>
       <p>Use the numbers the restaurant or brand publishes, for one serving as you describe it.</p>
-      <div class="f"><label for="pasteTxt">Paste from a website (optional)</label><textarea id="pasteTxt" placeholder="Paste the nutrition text from the menu or pack, then tap Fill in"></textarea></div>
-      <div class="row end"><button type="button" class="btn" data-act="fill-paste" id="fillBtn">Fill in from text</button></div>
+      <div class="f"><label for="pasteTxt">Paste from a website, or read a label photo (optional)</label><textarea id="pasteTxt" placeholder="Paste the nutrition text from the menu or pack, then tap Fill in"></textarea></div>
+      <div class="row end"><button type="button" class="btn" data-act="label-photo" id="labelBtn">Read a label photo</button><button type="button" class="btn" data-act="fill-paste" id="fillBtn">Fill in from text</button></div>
       <div class="f"><label for="fName">Name</label><input id="fName" value="${v("name")}" placeholder="Grilled chicken salad, Kcal"></div>
       <div class="f"><label for="fAliases">Other names you say (comma separated)</label><input id="fAliases" value="${esc((f.aliases || []).join(", "))}" placeholder="kcal salad, chicken salad"></div>
       <div class="grid2">
@@ -470,6 +488,8 @@ main .wrap { padding-block: 6px 200px; display: flex; flex-direction: column; ga
       <p><span class="chip saved">My food</span> uses the exact macros you saved, scaled by servings. No range.</p>
       <p><span class="chip usda">USDA</span> means Claude broke the dish into ingredients with low, likely and high grams, and every ingredient was priced from USDA FoodData Central.</p>
       <p><span class="chip estimate">Estimate</span> means at least one ingredient had no good USDA match, so Claude's own per-100 g value filled the gap.</p>
+      <p><span class="chip label">Label</span> means Claude read printed nutrition from your photo of a pack or label. Exact, no range.</p>
+      <p><span class="chip photo">Photo</span> marks anything logged from a photo. Meal photos get wider ranges, because portion size and oil are hard to judge from a picture. A short note like "I ate half" helps.</p>
       <p>Saying a size ("200 g", "half a plate") or how it was cooked narrows the range.</p>
       <p>Nutrition data: U.S. Department of Agriculture, Agricultural Research Service. FoodData Central.</p>
     </section>
@@ -483,13 +503,13 @@ main .wrap { padding-block: 6px 200px; display: flex; flex-direction: column; ga
     const T = S.draft.map(dScale).reduce((a, v) => ({ kcal: a.kcal + v.kcal, lo: a.lo + v.lo, hi: a.hi + v.hi }), { kcal: 0, lo: 0, hi: 0 });
     el.innerHTML = `<div class="draft" role="region" aria-label="Check before adding">
       <div class="dh"><b>Check and add</b><span class="num">${fmt(T.kcal)} kcal${Math.round(T.lo) !== Math.round(T.hi) ? `<br>${fmt(T.lo)} to ${fmt(T.hi)}` : ""}</span></div>
-      ${S.heard ? `<div class="heard">Heard: "${esc(S.heard)}"</div>` : ""}
+      ${S.heardPhoto || S.heard ? `<div class="heard">${S.heardPhoto ? `<img class="hthumb" src="${S.heardPhoto}" alt="Your photo">` : ""}<span>${S.heardPhoto ? (S.heard ? `Photo with your note: "${esc(S.heard)}"` : "From your photo") : `Heard: "${esc(S.heard)}"`}</span></div>` : ""}
       ${S.draft.map((d) => { const v = dScale(d), open = S.open.has(d.key); return `<div class="ditem">
-        <div class="r1"><div class="nm"><b>${esc(d.name)}</b> <span class="chip ${d.source}">${SRC[d.source]}</span></div><div class="kc num">${fmt(v.kcal)} kcal<small>${d.source === "saved" ? "exact" : `${fmt(v.lo)} to ${fmt(v.hi)}`}</small></div></div>
+        <div class="r1"><div class="nm"><b>${esc(d.name)}</b> <span class="chip ${d.source}">${SRC[d.source]}</span>${photoChip(d)}</div><div class="kc num">${fmt(v.kcal)} kcal<small>${isExact(d) ? "exact" : `${fmt(v.lo)} to ${fmt(v.hi)}`}</small></div></div>
         <div class="note num">${esc(d.portion)}${d.portion ? " · " : ""}P ${fmt(v.protein)} · C ${fmt(v.carbs)} · F ${fmt(v.fat)}${d.note ? ` · ${esc(d.note)}` : ""}</div>
         ${open ? breakdownHTML(d.breakdown) : ""}
         <div class="r2">
-          <label for="q_${d.key}">${d.source === "saved" ? "Servings" : "Portion ×"}<input id="q_${d.key}" type="number" min="0.1" step="0.25" inputmode="decimal" value="${r1(d.mult * (d.source === "saved" ? d.servings : 1))}" data-k="${d.key}" data-f="mult"></label>
+          <label for="q_${d.key}">${isExact(d) ? "Servings" : "Portion ×"}<input id="q_${d.key}" type="number" min="0.1" step="0.25" inputmode="decimal" value="${r1(d.mult * (isExact(d) ? d.servings : 1))}" data-k="${d.key}" data-f="mult"></label>
           <select id="m_${d.key}" aria-label="Meal" data-k="${d.key}" data-f="meal">${MEALS.map((m) => `<option value="${m}"${m === d.meal ? " selected" : ""}>${cap(m)}</option>`).join("")}</select>
           <input id="t_${d.key}" type="time" aria-label="Time" value="${esc(d.time)}" data-k="${d.key}" data-f="time">
           <input id="dt_${d.key}" type="date" aria-label="Date" value="${esc(d.date)}" max="${todayStr()}" data-k="${d.key}" data-f="date">
@@ -508,38 +528,81 @@ main .wrap { padding-block: 6px 200px; display: flex; flex-direction: column; ga
 
   /* ---------- Actions ---------- */
   async function submit() {
-    const ta = $("say"), text = ta.value.trim();
-    if (!text || S.busy) return;
-    S.busy = true; $("go").disabled = true; status("Reading your meal...");
+    const ta = $("say"), text = ta.value.trim(), photo = S.photo;
+    if ((!text && !photo) || S.busy) return;
+    S.busy = true; $("go").disabled = true; $("cam").disabled = true; status(photo ? "Reading your photo..." : "Reading your meal...");
     try {
       const d = new Date();
-      const res = await callFn("meal", { mode: "parse", text, today: todayStr(), now: nowTime(), viewing: S.date, weekday: d.toLocaleDateString("en-GB", { weekday: "long" }) });
+      const payload = { mode: "parse", text, today: todayStr(), now: nowTime(), viewing: S.date, weekday: d.toLocaleDateString("en-GB", { weekday: "long" }) };
+      if (photo) { payload.image = photo.data; payload.media_type = photo.media_type; }
+      const res = await callFn("meal", payload);
       const items = res.items || [];
-      if (!items.length) { status("No food found in that. Try naming what you ate.", true); return; }
+      if (!items.length) { status(photo ? "Couldn't find food in that photo. Add a note saying what it is." : "No food found in that. Try naming what you ate.", true); return; }
       items.forEach((it) => S.draft.push({ ...it, key: Math.random().toString(36).slice(2), mult: 1 }));
-      S.heard = text; ta.value = ""; autosize(); status("");
+      S.heard = text; S.heardPhoto = photo ? photo.dataUrl : null; S.photo = null; renderPhoto();
+      ta.value = ""; autosize(); status("");
       renderDraft();
     } catch (e) {
       status(e.message, true);
-    } finally { S.busy = false; $("go").disabled = false; }
+    } finally { S.busy = false; $("go").disabled = false; $("cam").disabled = false; }
   }
+
+  /* ---------- Photos ---------- */
+  // Shrink to 1280 px JPEG before upload: plenty for Claude to read a label, and keeps each request small and cheap.
+  async function loadPhoto(file) {
+    const url = URL.createObjectURL(file);
+    try {
+      const img = new Image();
+      await new Promise((res, rej) => { img.onload = res; img.onerror = () => rej(new Error("That file isn't a photo this browser can open.")); img.src = url; });
+      const k = Math.min(1, 1280 / Math.max(img.naturalWidth, img.naturalHeight));
+      const c = document.createElement("canvas");
+      c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      const dataUrl = c.toDataURL("image/jpeg", 0.82);
+      return { dataUrl, data: dataUrl.split(",")[1], media_type: "image/jpeg" };
+    } finally { URL.revokeObjectURL(url); }
+  }
+  function renderPhoto() {
+    const box = $("photoBox");
+    box.innerHTML = S.photo ? `<div class="photobox"><img src="${S.photo.dataUrl}" alt="Photo to log"><span>Add a note if it helps, like "I ate about half" or "cooked with little oil". Then tap Log.</span><button type="button" id="photoRemove">Remove</button></div>` : "";
+    $("say").placeholder = S.photo ? "Add a note (optional)" : "What did you eat?";
+    if (S.photo) $("photoRemove").onclick = () => { S.photo = null; renderPhoto(); };
+  }
+  $("cam").addEventListener("click", () => { if (!S.busy) $("photoInput").click(); });
+  $("photoInput").addEventListener("change", async (e) => {
+    const file = e.target.files?.[0]; e.target.value = "";
+    if (!file) return;
+    try { S.photo = await loadPhoto(file); status(""); renderPhoto(); }
+    catch (err) { status(err.message, true); }
+  });
+  $("labelInput").addEventListener("change", async (e) => {
+    const file = e.target.files?.[0]; e.target.value = "";
+    if (!file || !$("labelBtn")) return;
+    const btn = $("labelBtn"); btn.disabled = true; btn.textContent = "Reading...";
+    try {
+      const photo = await loadPhoto(file);
+      const { food: r } = await callFn("meal", { mode: "extract", image: photo.data, media_type: photo.media_type, text: ($("pasteTxt")?.value || "").trim() });
+      fillFood(r);
+    } catch (err) { toast(err.message); }
+    finally { if (btn.isConnected) { btn.disabled = false; btn.textContent = "Read a label photo"; } }
+  });
 
   async function commitDraft() {
     const rows = S.draft.map((d) => {
       const v = dScale(d);
-      const portion = d.source === "saved" ? `${r1(d.servings * d.mult)} × ${d.per_serving ? (d.portion.split(" × ")[1] || "serving") : "serving"}` : (d.mult !== 1 ? `${r1(d.mult)} × ${d.portion || "portion"}` : d.portion);
+      const portion = isExact(d) ? `${r1(d.servings * d.mult)} × ${d.per_serving ? (d.portion.split(" × ")[1] || "serving") : "serving"}` : (d.mult !== 1 ? `${r1(d.mult)} × ${d.portion || "portion"}` : d.portion);
       return {
         eaten_on: d.date, eaten_at: d.time, meal: d.meal, name: d.name, portion,
         kcal: Math.round(v.kcal), kcal_low: Math.round(v.lo), kcal_high: Math.round(v.hi),
         protein: r1(v.protein), carbs: r1(v.carbs), fat: r1(v.fat),
-        source: d.source, food_id: d.food_id || null, breakdown: d.breakdown?.length ? d.breakdown : null, transcript: S.heard || null,
+        source: d.source, from_photo: !!d.from_photo, food_id: d.food_id || null, breakdown: d.breakdown?.length ? d.breakdown : null, transcript: S.heard || null,
       };
     });
     $("commitBtn").disabled = true;
     const { error } = await sb.from("entries").insert(rows);
     if (error) { $("commitBtn").disabled = false; toast("Couldn't save. Check your connection and try again."); return; }
     const other = rows.some((r) => r.eaten_on !== S.date);
-    S.draft = []; S.heard = ""; renderDraft();
+    S.draft = []; S.heard = ""; S.heardPhoto = null; renderDraft();
     toast(`Added ${rows.length} item${rows.length === 1 ? "" : "s"}${other ? " (some on another day)" : ""}.`);
     loadDay();
   }
@@ -585,16 +648,19 @@ main .wrap { padding-block: 6px 200px; display: flex; flex-direction: column; ga
     await loadFoods(); S.editing = null; S.armDelete = null; render(); toast("Deleted.");
   }
 
+  function fillFood(r) {
+    const set = (id, v) => { if (v !== null && v !== undefined && v !== "" && $(id)) $(id).value = v; };
+    set("fName", r.name); set("fServing", r.serving); set("fGrams", r.serving_g);
+    set("fKcal", r.kcal); set("fP", r.protein); set("fC", r.carbs); set("fF", r.fat);
+    toast(r.kcal ? "Filled in. Check the numbers, then save." : "Couldn't read calories from that. Fill them in by hand.");
+  }
   async function fillFromPaste() {
     const txt = ($("pasteTxt")?.value || "").trim();
     if (!txt) { toast("Paste the nutrition text first."); return; }
     const btn = $("fillBtn"); btn.disabled = true; btn.textContent = "Reading...";
     try {
       const { food: r } = await callFn("meal", { mode: "extract", text: txt });
-      const set = (id, v) => { if (v !== null && v !== undefined && v !== "") $(id).value = v; };
-      set("fName", r.name); set("fServing", r.serving); set("fGrams", r.serving_g);
-      set("fKcal", r.kcal); set("fP", r.protein); set("fC", r.carbs); set("fF", r.fat);
-      toast("Filled in. Check the numbers, then save.");
+      fillFood(r);
     } catch (e) { toast(e.message); }
     finally { if (btn.isConnected) { btn.disabled = false; btn.textContent = "Fill in from text"; } }
   }
@@ -691,7 +757,8 @@ main .wrap { padding-block: 6px 200px; display: flex; flex-direction: column; ga
     else if (act === "del-entry") { if (S.armDelete === id) { S.armDelete = null; deleteEntry(id); } else { S.armDelete = id; renderToday(); } }
     else if (act === "save-entry") {
       const en = S.entries.find((x) => x.id === id); if (!en) return;
-      S.editing = { name: en.name, serving: en.portion || "1 portion", kcal: en.kcal, protein: en.protein, carbs: en.carbs, fat: en.fat, aliases: [] };
+      const m = String(en.portion || "").match(/^(\d+(?:\.\d+)?) × (.+)$/), k = m && +m[1] > 0 ? +m[1] : 1;
+      S.editing = { name: en.name, serving: m ? m[2] : (en.portion || "1 portion"), kcal: Math.round(en.kcal / k), protein: r1(en.protein / k), carbs: r1(en.carbs / k), fat: r1(en.fat / k), aliases: [] };
       S.returnTo = "today"; S.view = "library"; render(); window.scrollTo(0, 0);
     }
     else if (act === "new-food") { S.editing = { aliases: [] }; renderLibrary(); }
@@ -700,6 +767,7 @@ main .wrap { padding-block: 6px 200px; display: flex; flex-direction: column; ga
     else if (act === "save-food") saveFood();
     else if (act === "del-food") deleteFood();
     else if (act === "fill-paste") fillFromPaste();
+    else if (act === "label-photo") $("labelInput").click();
     else if (act === "save-goals") saveGoals();
     else if (act === "sign-out") sb.auth.signOut();
   });
@@ -712,14 +780,14 @@ main .wrap { padding-block: 6px 200px; display: flex; flex-direction: column; ga
   $("draft").addEventListener("click", (e) => {
     const b = e.target.closest("[data-act]"); if (!b) return;
     const k = b.dataset.k;
-    if (b.dataset.act === "drop") { S.draft = S.draft.filter((d) => d.key !== k); if (!S.draft.length) S.heard = ""; renderDraft(); }
+    if (b.dataset.act === "drop") { S.draft = S.draft.filter((d) => d.key !== k); if (!S.draft.length) S.heard = ""; S.heardPhoto = null; renderDraft(); }
     else if (b.dataset.act === "toggle") { S.open.has(k) ? S.open.delete(k) : S.open.add(k); renderDraft(); }
-    else if (b.dataset.act === "discard") { S.draft = []; S.heard = ""; renderDraft(); }
+    else if (b.dataset.act === "discard") { S.draft = []; S.heard = ""; S.heardPhoto = null; renderDraft(); }
     else if (b.dataset.act === "commit") commitDraft();
   });
   $("draft").addEventListener("change", (e) => {
     const t = e.target, d = S.draft.find((x) => x.key === t.dataset.k); if (!d) return;
-    if (t.dataset.f === "mult") { const v = Number(t.value); if (v > 0) d.mult = d.source === "saved" ? v / (d.servings || 1) : v; }
+    if (t.dataset.f === "mult") { const v = Number(t.value); if (v > 0) d.mult = isExact(d) ? v / (d.servings || 1) : v; }
     else if (t.dataset.f === "meal") d.meal = t.value;
     else if (t.dataset.f === "time" && t.value) d.time = t.value;
     else if (t.dataset.f === "date" && t.value && t.value <= todayStr()) d.date = t.value;
