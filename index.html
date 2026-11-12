@@ -593,7 +593,9 @@ main .wrap { padding-block: 6px 200px; display: flex; flex-direction: column; ga
     let inner;
     if (!W) inner = `<p>Checking...</p>`;
     else if (!W.configured) inner = `<p>Not set up yet. Create an app at developer-dashboard.whoop.com with this redirect URL, then add WHOOP_CLIENT_ID and WHOOP_CLIENT_SECRET in Supabase secrets.</p><div class="code">${esc(W.redirect_uri || "")}</div>`;
-    else if (!W.connected) inner = `<p>Connect to pull calories burned, steps and workouts for each WHOOP day. You'll approve access on WHOOP's own page.</p><div class="row end"><button type="button" class="btn primary" data-act="whoop-connect" id="whoopConnect">Connect WHOOP</button></div>`;
+    else if (!W.connected) inner = `<p>Connect to pull calories burned, steps and workouts for each WHOOP day. You'll approve access on WHOOP's own page.</p>
+      <p>Client ID in use: it should match the one on your WHOOP developer dashboard.</p>
+      <div class="code">${esc(W.client_id || "")}</div><div class="row end"><button type="button" class="btn primary" data-act="whoop-connect" id="whoopConnect">Connect WHOOP</button></div>`;
     else inner = `<div class="keys"><span>Status</span><span><span class="ok">Connected</span>, synced ${esc(ago(W.last_synced_at))}</span>${W.last_error ? `<span>Problem</span><span class="no">${esc(W.last_error === "reconnect" ? "Access expired. Disconnect and connect again." : W.last_error)}</span>` : ""}</div>
       <p>A WHOOP day runs from wake-up to wake-up and counts toward the date you woke up. The app syncs when you open it.</p>
       <div class="row end"><button type="button" class="btn danger" data-act="whoop-disconnect">${S.armDelete === "whoop" ? "Tap again to disconnect" : "Disconnect"}</button><button type="button" class="btn primary" data-act="whoop-sync" id="whoopSync">Sync now</button></div>`;

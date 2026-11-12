@@ -16,7 +16,8 @@ const json = (body: unknown, status = 200) =>
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const admin = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
-const env = (k: string) => Deno.env.get(k) ?? "";
+// Trim stray spaces, line breaks and quotes that often come along when pasting keys.
+const env = (k: string) => (Deno.env.get(k) ?? "").trim().replace(/^["']|["']$/g, "").trim();
 
 const API = "https://api.prod.whoop.com/developer";
 const AUTH_URL = "https://api.prod.whoop.com/oauth/oauth2/auth";
@@ -186,7 +187,13 @@ Deno.serve(async (req) => {
     const { data: conn } = await admin.from("whoop_connections").select("connected_at,last_synced_at,last_error").eq("user_id", user.id).maybeSingle();
 
     if (body.action === "status") {
-      return json({ configured: configured(), connected: !!conn, last_synced_at: conn?.last_synced_at ?? null, last_error: conn?.last_error ?? null, redirect_uri: REDIRECT_URI });
+      // The Client ID is public (it appears in the WHOOP sign-in link), so it's safe to show for checking.
+      const id = env("WHOOP_CLIENT_ID");
+      return json({
+        configured: configured(), connected: !!conn, last_synced_at: conn?.last_synced_at ?? null, last_error: conn?.last_error ?? null, redirect_uri: REDIRECT_URI,
+        client_id: id || null, client_id_looks_right: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id),
+        secret_length: env("WHOOP_CLIENT_SECRET").length,
+      });
     }
     if (!configured()) return json({ error: "not_configured", message: "Add WHOOP_CLIENT_ID and WHOOP_CLIENT_SECRET in Supabase secrets." }, 503);
 
