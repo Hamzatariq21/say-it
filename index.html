@@ -201,6 +201,35 @@ main .wrap { padding-block: 6px 200px; display: flex; flex-direction: column; ga
 .auth h1 span { color: var(--accent); }
 .auth .err { color: var(--danger); font-size: 13.5px; }
 .auth .ok { color: var(--accent); font-size: 13.5px; }
+
+/* WHOOP energy balance */
+.ehd { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+.ehd b { font-family: var(--display); font-weight: 900; font-stretch: 80%; font-size: 18px; }
+.ehd span { font-size: 11.5px; color: var(--muted); }
+.chip.whoop { background: var(--ink); color: var(--bg); }
+.eline { margin: 2px 0 10px; font-size: 14.5px; line-height: 1.4; }
+.eline b { font-weight: 700; }
+.bars { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px 10px; align-items: center; }
+.bl { font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+.track { position: relative; height: 14px; background: var(--accent-soft); border-radius: 4px; overflow: hidden; display: flex; }
+.seg { display: block; height: 100%; flex: none; }
+.seg.eat { background: var(--ink); }
+.track .band { position: absolute; top: 0; bottom: 0; background: var(--range); opacity: .8; }
+.seg.wk, .sw.wk { background: var(--accent); }
+.seg.base, .sw.base { background: color-mix(in srgb, var(--accent) 55%, var(--surface)); }
+.seg.proj { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--accent) 35%, var(--surface)) 0 4px, var(--surface) 4px 8px); }
+.sw.proj { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--accent) 35%, var(--surface)) 0 3px, var(--surface) 3px 6px); border: 1px solid var(--line); }
+.bv { font-weight: 700; text-align: right; min-width: 52px; }
+.bv small { display: block; font-weight: 500; font-size: 11px; color: var(--muted); }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11.5px; color: var(--muted); margin-top: 8px; }
+.legend span { display: inline-flex; align-items: center; gap: 5px; }
+.sw { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.steps { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; padding: 8px 0 2px; border-top: 1px solid var(--line); margin-top: 8px; }
+.steps b { font-weight: 700; }
+.steps .mini { height: 5px; background: var(--accent-soft); border-radius: 3px; overflow: hidden; }
+.steps .mini i { display: block; height: 100%; background: var(--accent); }
+.enote { margin: 6px 0 0; font-size: 11.5px; color: var(--muted); line-height: 1.4; }
+.code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; overflow-wrap: anywhere; user-select: all; }
 </style>
 </head>
 <body>
@@ -289,7 +318,8 @@ main .wrap { padding-block: 6px 200px; display: flex; flex-direction: column; ga
   const S = {
     user: null, view: "today", date: todayStr(),
     entries: [], dayState: "loading",
-    foods: [], goals: { kcal: 2000, protein: 120, carbs: 220, fat: 65 },
+    foods: [], goals: { kcal: 2000, protein: 120, carbs: 220, fat: 65, net_target: 500, step_goal: 10000 },
+    whoop: null, wday: null, wworkouts: [], wavg: null,
     draft: [], heard: "", heardPhoto: null, photo: null, busy: false, config: null,
     editing: null, armDelete: null, filter: "", open: new Set(), returnTo: null,
   };
@@ -315,10 +345,46 @@ main .wrap { padding-block: 6px 200px; display: flex; flex-direction: column; ga
   async function loadDay() {
     const seq = ++reqSeq, date = S.date;
     S.dayState = "loading"; if (S.view === "today") renderToday();
-    const { data, error } = await sb.from("entries").select("*").eq("eaten_on", date).order("eaten_at");
+    const [ent, wd, ww] = await Promise.all([
+      sb.from("entries").select("*").eq("eaten_on", date).order("eaten_at"),
+      S.whoop?.connected ? sb.from("whoop_days").select("*").eq("day", date) : Promise.resolve({ data: [] }),
+      S.whoop?.connected ? sb.from("whoop_workouts").select("*").eq("day", date).order("started_at") : Promise.resolve({ data: [] }),
+    ]);
     if (seq !== reqSeq) return;
+    const { data, error } = ent;
     if (error) { S.dayState = "error"; S.entries = []; } else { S.entries = data; S.dayState = "ready"; }
+    S.wday = whoopDay(wd.data || []); S.wworkouts = ww.data || [];
     if (S.view === "today") renderToday();
+  }
+  // A calendar day can (rarely) hold two WHOOP days; add them together.
+  function whoopDay(rows) {
+    if (!rows.length) return null;
+    const withK = rows.filter((r) => r.kcal != null), withS = rows.filter((r) => r.steps != null);
+    return {
+      burned: withK.length ? withK.reduce((a, r) => a + Number(r.kcal), 0) : null,
+      steps: withS.length ? withS.reduce((a, r) => a + Number(r.steps), 0) : null,
+      partial: rows.some((r) => !r.ended_at),
+      strain: Math.max(...rows.map((r) => Number(r.strain) || 0)),
+    };
+  }
+  async function loadWhoopAvg() {
+    if (!S.whoop?.connected) { S.wavg = null; return; }
+    const { data } = await sb.from("whoop_days").select("kcal,ended_at").not("ended_at", "is", null).not("kcal", "is", null).order("started_at", { ascending: false }).limit(7);
+    S.wavg = data && data.length ? data.reduce((a, r) => a + Number(r.kcal), 0) / data.length : null;
+  }
+  async function whoopSync(force) {
+    if (!S.whoop?.connected) return;
+    try {
+      const r = await callFn("whoop", { action: "sync", force: !!force });
+      if (r.last_synced_at) S.whoop.last_synced_at = r.last_synced_at;
+      S.whoop.last_error = null;
+      await loadWhoopAvg(); await loadDay();
+      if (force) toast("WHOOP synced.");
+    } catch (e) {
+      S.whoop.last_error = e.message;
+      if (force || e.code === "reconnect") toast(e.message);
+    }
+    if (S.view === "goals") renderSettings();
   }
   async function loadFoods() {
     const { data } = await sb.from("foods").select("*").order("name");
@@ -326,7 +392,7 @@ main .wrap { padding-block: 6px 200px; display: flex; flex-direction: column; ga
   }
   async function loadGoals() {
     const { data } = await sb.from("goals").select("*").maybeSingle();
-    if (data) S.goals = { kcal: data.kcal, protein: data.protein, carbs: data.carbs, fat: data.fat };
+    if (data) S.goals = { kcal: data.kcal, protein: data.protein, carbs: data.carbs, fat: data.fat, net_target: data.net_target ?? 500, step_goal: data.step_goal ?? 10000 };
   }
 
   /* ---------- Rendering ---------- */
@@ -346,6 +412,65 @@ main .wrap { padding-block: 6px 200px; display: flex; flex-direction: column; ga
     $("nextDay").disabled = S.date >= t;
   }
 
+  const ago = (iso) => {
+    if (!iso) return "never";
+    const m = Math.round((Date.now() - Date.parse(iso)) / 60000);
+    if (m < 1) return "just now"; if (m < 60) return `${m} min ago`;
+    const h = Math.round(m / 60); if (h < 24) return `${h} h ago`;
+    return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  };
+  function energyHTML(T) {
+    if (!S.whoop?.connected) return "";
+    const w = S.wday, G = S.goals, target = G.net_target || 0;
+    const head = (sub) => `<div class="rule-md"></div><div class="ehd"><b>Energy balance</b><span><span class="chip whoop">WHOOP</span> ${sub}</span></div>`;
+    if (!w || w.burned == null) return head(`synced ${ago(S.whoop.last_synced_at)}`) + `<p class="eline" style="color:var(--muted)">No WHOOP data for this day yet.</p>`;
+    const wk = S.wworkouts.reduce((a, x) => a + (Number(x.kcal) || 0), 0);
+    const base = Math.max(0, w.burned - wk);
+    const full = w.partial && S.wavg ? Math.max(S.wavg, w.burned) : w.burned;
+    const rest = full - w.burned;
+    const scale = Math.max(full, T.hi, 1), pc = (v) => (v / scale) * 100;
+    const tgt = target ? ` your −${fmt(target)} target` : " breaking even";
+    let line;
+    if (w.partial) {
+      const room = full - target - T.kcal;
+      line = room >= 0
+        ? `You can eat about <b class="num">${fmt(room)} kcal</b> more today and still hit${tgt}.`
+        : `You're <b class="num">${fmt(-room)} kcal</b> past what keeps you on${tgt} today.`;
+      if (!S.wavg) line += ` <span style="color:var(--muted)">(Based on burn so far. A 7-day average arrives after a few full WHOOP days.)</span>`;
+    } else {
+      const net = T.kcal - w.burned, diff = -net - target;
+      line = `Net <b class="num">${net < 0 ? "−" : "+"}${fmt(Math.abs(net))} kcal</b>.${target ? ` ${diff >= 0 ? `${fmt(diff)} beyond` : `${fmt(-diff)} short of`} your −${fmt(target)} target.` : ""}`;
+    }
+    const steps = w.steps == null ? `<span class="num" style="color:var(--muted)">No step data</span>`
+      : `<span class="num"><b>${fmt(w.steps)}</b>${G.step_goal ? ` <span style="color:var(--muted)">of ${fmt(G.step_goal)}</span>` : ""}</span>`;
+    return head(w.partial ? `synced ${ago(S.whoop.last_synced_at)}` : "full day") + `
+      <p class="eline">${line}</p>
+      <div class="bars">
+        <span class="bl">Eaten</span>
+        <div class="track" aria-hidden="true"><i class="seg eat" style="width:${pc(T.kcal)}%"></i><i class="band" style="left:${pc(T.lo)}%;width:${pc(T.hi - T.lo)}%"></i></div>
+        <span class="bv num">${fmt(T.kcal)}</span>
+        <span class="bl">Burned</span>
+        <div class="track" aria-hidden="true"><i class="seg wk" style="width:${pc(wk)}%"></i><i class="seg base" style="width:${pc(base)}%"></i>${rest > 0 ? `<i class="seg proj" style="width:${pc(rest)}%"></i>` : ""}</div>
+        <span class="bv num">${fmt(w.burned)}${rest > 0 ? `<small>of ~${fmt(full)}</small>` : ""}</span>
+      </div>
+      <div class="legend num">
+        <span><i class="sw wk"></i>Workouts ${fmt(wk)}</span>
+        <span><i class="sw base"></i>Resting and everyday movement ${fmt(base)}</span>
+        ${rest > 0 ? `<span><i class="sw proj"></i>Rest of today, from your 7-day average ${fmt(rest)}</span>` : ""}
+      </div>
+      <div class="steps"><b>Steps</b><div class="mini" aria-hidden="true"><i style="width:${w.steps != null && G.step_goal ? Math.min(100, w.steps / G.step_goal * 100) : 0}%"></i></div>${steps}</div>
+      <p class="enote">WHOOP works out calories burned from your heart rate, so walking is already in the Burned number. Steps are shown for context and are not added on top.</p>`;
+  }
+  const sportName = (s) => s ? String(s).replace(/[-_]+/g, " ").replace(/^./, (c) => c.toUpperCase()) : "Workout";
+  const hhmm = (iso) => { const d = new Date(iso); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+  function activityHTML() {
+    if (!S.wworkouts.length) return "";
+    const total = S.wworkouts.reduce((a, x) => a + (Number(x.kcal) || 0), 0);
+    return `<section class="meal"><h3>Activity <span class="num">${fmt(total)} kcal burned</span></h3><ul class="items">${S.wworkouts.map((x) => {
+      const min = x.ended_at ? Math.round((Date.parse(x.ended_at) - Date.parse(x.started_at)) / 60000) : null;
+      return `<li><span class="t num">${hhmm(x.started_at)}</span><div class="nm"><b>${esc(sportName(x.sport_name))}</b><div class="sub"><span class="chip whoop">WHOOP</span>${min ? `<span class="num">${min} min</span>` : ""}${x.strain != null ? `<span class="num">Strain ${r1(x.strain)}</span>` : ""}</div></div><span class="kc num">${fmt(x.kcal)}<small>kcal</small></span></li>`;
+    }).join("")}</ul></section>`;
+  }
   function factsHTML(list) {
     const T = totals(list), G = S.goals;
     const scale = Math.max(G.kcal || 0, T.hi, 1);
@@ -366,6 +491,7 @@ main .wrap { padding-block: 6px 200px; display: flex; flex-direction: column; ga
         <div class="fill" style="width:${(T.kcal / scale) * 100}%"></div>
       </div>
       <div class="left${over ? " over" : ""}">${leftTxt}</div>
+      ${energyHTML(T)}
       <div class="rule-md"></div>
       <div class="dv"><span>% of calories</span></div>
       ${mrow("Protein", T.protein, G.protein, 4)}
@@ -415,6 +541,7 @@ main .wrap { padding-block: 6px 200px; display: flex; flex-direction: column; ga
         html += `</ul></section>`;
       });
     }
+    html += activityHTML();
     $("main").innerHTML = html;
   }
 
@@ -461,6 +588,17 @@ main .wrap { padding-block: 6px 200px; display: flex; flex-direction: column; ga
     $("main").innerHTML = html;
   }
 
+  function whoopPanel() {
+    const W = S.whoop;
+    let inner;
+    if (!W) inner = `<p>Checking...</p>`;
+    else if (!W.configured) inner = `<p>Not set up yet. Create an app at developer-dashboard.whoop.com with this redirect URL, then add WHOOP_CLIENT_ID and WHOOP_CLIENT_SECRET in Supabase secrets.</p><div class="code">${esc(W.redirect_uri || "")}</div>`;
+    else if (!W.connected) inner = `<p>Connect to pull calories burned, steps and workouts for each WHOOP day. You'll approve access on WHOOP's own page.</p><div class="row end"><button type="button" class="btn primary" data-act="whoop-connect" id="whoopConnect">Connect WHOOP</button></div>`;
+    else inner = `<div class="keys"><span>Status</span><span><span class="ok">Connected</span>, synced ${esc(ago(W.last_synced_at))}</span>${W.last_error ? `<span>Problem</span><span class="no">${esc(W.last_error === "reconnect" ? "Access expired. Disconnect and connect again." : W.last_error)}</span>` : ""}</div>
+      <p>A WHOOP day runs from wake-up to wake-up and counts toward the date you woke up. The app syncs when you open it.</p>
+      <div class="row end"><button type="button" class="btn danger" data-act="whoop-disconnect">${S.armDelete === "whoop" ? "Tap again to disconnect" : "Disconnect"}</button><button type="button" class="btn primary" data-act="whoop-sync" id="whoopSync">Sync now</button></div>`;
+    return `<section class="panel" aria-label="WHOOP"><h2>WHOOP</h2>${inner}</section>`;
+  }
   function renderSettings() {
     const G = S.goals, C = S.config;
     const k = (ok, yes, no) => `<span class="${ok ? "ok" : "no"}">${ok ? yes : no}</span>`;
@@ -473,6 +611,11 @@ main .wrap { padding-block: 6px 200px; display: flex; flex-direction: column; ga
         <div class="f"><label for="gC">Carbs g</label><input id="gC" type="number" inputmode="numeric" min="0" value="${G.carbs}"></div>
         <div class="f"><label for="gF">Fat g</label><input id="gF" type="number" inputmode="numeric" min="0" value="${G.fat}"></div>
       </div>
+      <div class="grid2">
+        <div class="f"><label for="gN">Deficit target, kcal</label><input id="gN" type="number" inputmode="numeric" min="0" value="${G.net_target}"></div>
+        <div class="f"><label for="gS">Step goal</label><input id="gS" type="number" inputmode="numeric" min="0" value="${G.step_goal}"></div>
+      </div>
+      <p>The deficit target is how far below your WHOOP burn you want to eat each day. Use 0 to aim for break-even.</p>
       <div class="row end"><button type="button" class="btn primary" data-act="save-goals">Save goals</button></div>
     </section>
     <section class="panel" aria-label="Connections">
@@ -483,6 +626,7 @@ main .wrap { padding-block: 6px 200px; display: flex; flex-direction: column; ga
         <span>Voice</span><span>${C.whisper ? k(true, "Whisper (Groq)", "") : (window.SpeechRecognition || window.webkitSpeechRecognition) ? "Browser speech. Add GROQ_API_KEY for Whisper." : "Use your keyboard's mic. Add GROQ_API_KEY for Whisper."}</span>
       </div>` : `<p>Checking...</p>`}
     </section>
+    ${whoopPanel()}
     <section class="panel" aria-label="How it works">
       <h2>How the numbers work</h2>
       <p><span class="chip saved">My food</span> uses the exact macros you saved, scaled by servings. No range.</p>
@@ -614,7 +758,7 @@ main .wrap { padding-block: 6px 200px; display: flex; flex-direction: column; ga
   }
 
   async function saveGoals() {
-    const g = { kcal: +$("gK").value || 0, protein: +$("gP").value || 0, carbs: +$("gC").value || 0, fat: +$("gF").value || 0 };
+    const g = { kcal: +$("gK").value || 0, protein: +$("gP").value || 0, carbs: +$("gC").value || 0, fat: +$("gF").value || 0, net_target: Math.max(0, +$("gN").value || 0), step_goal: Math.max(0, +$("gS").value || 0) };
     const { error } = await sb.from("goals").upsert({ user_id: S.user.id, ...g, updated_at: new Date().toISOString() });
     if (error) { toast("Couldn't save goals. Try again."); return; }
     S.goals = g; toast("Goals saved.");
@@ -770,6 +914,21 @@ main .wrap { padding-block: 6px 200px; display: flex; flex-direction: column; ga
     else if (act === "label-photo") $("labelInput").click();
     else if (act === "save-goals") saveGoals();
     else if (act === "sign-out") sb.auth.signOut();
+    else if (act === "whoop-connect") {
+      b.disabled = true; b.textContent = "Opening WHOOP...";
+      callFn("whoop", { action: "start", return_to: location.origin + location.pathname })
+        .then((r) => { location.href = r.url; })
+        .catch((err) => { toast(err.message); b.disabled = false; b.textContent = "Connect WHOOP"; });
+    }
+    else if (act === "whoop-sync") { b.disabled = true; b.textContent = "Syncing..."; whoopSync(true); }
+    else if (act === "whoop-disconnect") {
+      if (S.armDelete !== "whoop") { S.armDelete = "whoop"; renderSettings(); return; }
+      S.armDelete = null;
+      callFn("whoop", { action: "disconnect" }).then(() => {
+        S.whoop = { ...S.whoop, connected: false, last_synced_at: null, last_error: null }; S.wday = null; S.wworkouts = []; S.wavg = null;
+        renderSettings(); toast("WHOOP disconnected and its data removed.");
+      }).catch((err) => toast(err.message));
+    }
   });
   $("main").addEventListener("input", (e) => {
     if (e.target.id !== "libSearch") return;
@@ -834,7 +993,19 @@ main .wrap { padding-block: 6px 200px; display: flex; flex-direction: column; ga
     await Promise.all([loadFoods(), loadGoals()]);
     loadDay();
     callFn("meal", { mode: "status" }).then((c) => { S.config = c; setupVoice(); if (S.view !== "library") render(); }).catch(() => { setupVoice(); });
+    const back = new URLSearchParams(location.search).get("whoop");
+    if (back) {
+      toast({ connected: "WHOOP connected.", denied: "WHOOP access wasn't granted.", error: "Couldn't connect WHOOP. Try again." }[back] || "");
+      history.replaceState(null, "", location.pathname);
+    }
+    try {
+      S.whoop = await callFn("whoop", { action: "status" });
+      if (S.whoop.connected) { await loadWhoopAvg(); await loadDay(); whoopSync(false); }
+    } catch (_) { S.whoop = { configured: false, connected: false }; }
+    if (S.view === "goals") renderSettings();
   }
+  // Coming back to the app after a while: pull fresh WHOOP numbers (the server skips it if synced in the last 5 minutes).
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && S.user && S.whoop?.connected) whoopSync(false); });
   function leaveApp() {
     S.user = null; S.entries = []; S.foods = []; S.draft = [];
     $("appView").hidden = true; $("authView").hidden = false;
