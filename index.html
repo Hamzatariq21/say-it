@@ -461,7 +461,7 @@ main .wrap { padding-block: 6px 200px; display: flex; flex-direction: column; ga
       <div class="steps"><b>Steps</b><div class="mini" aria-hidden="true"><i style="width:${w.steps != null && G.step_goal ? Math.min(100, w.steps / G.step_goal * 100) : 0}%"></i></div>${steps}</div>
       <p class="enote">WHOOP works out calories burned from your heart rate, so walking is already in the Burned number. Steps are shown for context and are not added on top.</p>`;
   }
-  const sportName = (s) => s ? String(s).replace(/[-_]+/g, " ").replace(/^./, (c) => c.toUpperCase()) : "Workout";
+  const sportName = (s) => s ? String(s).replace(/_msk$/i, "").replace(/[-_]+/g, " ").trim().replace(/^./, (c) => c.toUpperCase()) : "Workout";
   const hhmm = (iso) => { const d = new Date(iso); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
   function activityHTML() {
     if (!S.wworkouts.length) return "";

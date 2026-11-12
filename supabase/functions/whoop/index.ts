@@ -32,12 +32,15 @@ const configured = () => !!env("WHOOP_CLIENT_ID") && !!env("WHOOP_CLIENT_SECRET"
 const kcalFromKj = (kj: unknown) => (typeof kj === "number" && isFinite(kj) ? Math.round(kj / 4.184) : null);
 const int = (v: unknown) => (typeof v === "number" && isFinite(v) ? Math.round(v) : null);
 
-// WHOOP days run wake-up to wake-up. Date each one by the local calendar day it started (the day you woke up).
-function localDay(startIso: string, offset: string | null | undefined) {
+// Local calendar date of a moment, using WHOOP's timezone offset ("+04:00"), shifted by extra hours.
+function localDay(startIso: string, offset: string | null | undefined, shiftHours = 0) {
   const m = /^([+-])(\d{2}):?(\d{2})$/.exec(offset ?? "");
   const mins = m ? (m[1] === "-" ? -1 : 1) * (Number(m[2]) * 60 + Number(m[3])) : 0;
-  return new Date(Date.parse(startIso) + mins * 60_000).toISOString().slice(0, 10);
+  return new Date(Date.parse(startIso) + (mins + shiftHours * 60) * 60_000).toISOString().slice(0, 10);
 }
+// A WHOOP day starts when you fall asleep. Shifting 8 hours dates it by the morning you woke up,
+// whether you slept at 11pm or 2am.
+const wakeDay = (startIso: string, offset: string | null | undefined) => localDay(startIso, offset, 8);
 
 async function signedInUser(req: Request) {
   const token = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
@@ -115,7 +118,7 @@ async function sync(userId: string, days: number) {
   const now = new Date().toISOString();
   // deno-lint-ignore no-explicit-any
   const dayRows = cycles.map((c: any) => ({
-    user_id: userId, cycle_id: c.id, day: localDay(c.start, c.timezone_offset),
+    user_id: userId, cycle_id: c.id, day: wakeDay(c.start, c.timezone_offset),
     started_at: c.start, ended_at: c.end ?? null, timezone_offset: c.timezone_offset ?? null, score_state: c.score_state ?? null,
     kcal: kcalFromKj(c.score?.kilojoule), strain: c.score?.strain ?? null,
     steps: int(c.step_count ?? c.score?.step_count), avg_hr: int(c.score?.average_heart_rate), max_hr: int(c.score?.max_heart_rate),
