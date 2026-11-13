@@ -202,6 +202,44 @@ main .wrap { padding-block: 6px 200px; display: flex; flex-direction: column; ga
 .auth .err { color: var(--danger); font-size: 13.5px; }
 .auth .ok { color: var(--accent); font-size: 13.5px; }
 
+/* Week dashboard */
+.wk-sum { background: var(--surface); border: 2px solid var(--ink); padding: 10px 12px 12px; }
+.wk-sum h2 { margin: 0; font-family: var(--display); font-weight: 900; font-stretch: 70%; font-size: 30px; line-height: 1; }
+.wk-sum .sub2 { font-size: 12.5px; color: var(--muted); margin-top: 4px; }
+.goals2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0; }
+.goal { padding: 8px 0; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.goal + .goal { border-left: 1px solid var(--line); padding-left: 12px; }
+.goal .lb { font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+.goal .big { font-family: var(--display); font-weight: 900; font-stretch: 75%; font-size: 34px; line-height: 1; }
+.goal .big small { font-size: 14px; font-weight: 700; color: var(--muted); margin-left: 3px; }
+.goal .meta { font-size: 12.5px; color: var(--muted); line-height: 1.4; }
+.pill.hit { background: var(--accent-soft); color: var(--accent); }
+.pill.miss { background: color-mix(in srgb, var(--over) 16%, var(--surface)); color: var(--over); }
+.pill.wait { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
+.pill { align-self: flex-start; display: inline-block; font-size: 11.5px; font-weight: 700; padding: 3px 9px; border-radius: 999px; margin-top: 4px; }
+.chart { width: 100%; height: auto; display: block; margin-top: 6px; }
+.chart text { font-family: var(--body); fill: var(--muted); font-size: 22px; }
+.chart .v { fill: var(--ink); font-weight: 700; font-size: 22px; }
+.chart .dl { font-size: 21px; }
+.days { list-style: none; margin: 0; padding: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+.days li + li { border-top: 1px solid var(--line); }
+.days button { width: 100%; border: 0; background: none; text-align: left; padding: 10px 12px; display: grid; grid-template-columns: 52px minmax(0, 1fr) auto auto; gap: 10px; align-items: center; }
+.days button:disabled { cursor: default; }
+.days .dn b { display: block; font-weight: 700; }
+.days .dn span { font-size: 12px; color: var(--muted); }
+.days .mid { min-width: 0; font-size: 12.5px; color: var(--muted); }
+.days .mid b { color: var(--ink); font-size: 15px; font-weight: 700; }
+.days .pr { text-align: right; font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.days .pr b { color: var(--ink); font-weight: 700; }
+.mk { display: inline-grid; place-items: center; min-width: 30px; height: 20px; padding: 0 6px; border-radius: 10px; font-size: 11px; font-weight: 700; margin-left: 4px; }
+.mk.y { background: var(--accent-soft); color: var(--accent); }
+.mk.n { background: color-mix(in srgb, var(--over) 16%, var(--surface)); color: var(--over); }
+.mk.p { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
+.days li.today button { background: color-mix(in srgb, var(--accent-soft) 45%, var(--surface)); }
+.days li.future .dn, .days li.future .mid { opacity: .45; }
+.marks { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
+.marks span { font-size: 11px; color: var(--muted); display: flex; align-items: center; }
+
 /* WHOOP energy balance */
 .ehd { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 4px; }
 .ehd b { font-family: var(--display); font-weight: 900; font-stretch: 80%; font-size: 18px; }
@@ -255,7 +293,8 @@ main .wrap { padding-block: 6px 200px; display: flex; flex-direction: column; ga
       <div class="brand">
         <h1>Say It<span>.</span></h1>
         <nav class="tabs" aria-label="Sections">
-          <button type="button" data-view="today" aria-pressed="true">Log</button>
+          <button type="button" data-view="week" aria-pressed="true">Week</button>
+          <button type="button" data-view="today" aria-pressed="false">Log</button>
           <button type="button" data-view="library" aria-pressed="false">My foods</button>
           <button type="button" data-view="goals" aria-pressed="false">Settings</button>
         </nav>
@@ -316,7 +355,7 @@ main .wrap { padding-block: 6px 200px; display: flex; flex-direction: column; ga
   const rangeTxt = (lo, hi) => Math.round(lo) === Math.round(hi) ? "exact" : `${fmt(lo)} to ${fmt(hi)}`;
 
   const S = {
-    user: null, view: "today", date: todayStr(),
+    user: null, view: "week", date: todayStr(), week: null, weekState: "loading", weekStart: null, weekSeq: 0,
     entries: [], dayState: "loading",
     foods: [], goals: { kcal: 2000, protein: 120, carbs: 220, fat: 65, net_target: 500, step_goal: 10000 },
     whoop: null, wday: null, wworkouts: [], wavg: null,
@@ -378,7 +417,7 @@ main .wrap { padding-block: 6px 200px; display: flex; flex-direction: column; ga
       const r = await callFn("whoop", { action: "sync", force: !!force });
       if (r.last_synced_at) S.whoop.last_synced_at = r.last_synced_at;
       S.whoop.last_error = null;
-      await loadWhoopAvg(); await loadDay();
+      await loadWhoopAvg(); await loadDay(); if (S.view === "week") await loadWeek();
       if (force) toast("WHOOP synced.");
     } catch (e) {
       S.whoop.last_error = e.message;
@@ -401,11 +440,28 @@ main .wrap { padding-block: 6px 200px; display: flex; flex-direction: column; ga
     protein: a.protein + (+e.protein || 0), carbs: a.carbs + (+e.carbs || 0), fat: a.fat + (+e.fat || 0),
   }), { kcal: 0, lo: 0, hi: 0, protein: 0, carbs: 0, fat: 0 });
 
+  // Weeks run Monday to Sunday.
+  const mondayOf = (ds) => { const [y, m, d] = ds.split("-").map(Number); const dt = new Date(y, m - 1, d); return dateStr(new Date(y, m - 1, d - ((dt.getDay() + 6) % 7))); };
+  const dObj = (ds) => { const [y, m, d] = ds.split("-").map(Number); return new Date(y, m - 1, d); };
+  const rangeLabel = (a, b) => {
+    const A = dObj(a), B = dObj(b);
+    const mo = (x) => x.toLocaleDateString("en-GB", { month: "short" });
+    return A.getMonth() === B.getMonth() ? `${A.getDate()} to ${B.getDate()} ${mo(B)}` : `${A.getDate()} ${mo(A)} to ${B.getDate()} ${mo(B)}`;
+  };
   function renderHeader() {
     document.querySelectorAll(".tabs button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.view === S.view)));
-    $("daynav").hidden = S.view !== "today";
-    $("composer").hidden = S.view !== "today";
+    $("daynav").hidden = !(S.view === "today" || S.view === "week");
+    $("composer").hidden = !(S.view === "today" || S.view === "week");
     const t = todayStr(), [y, m, d] = S.date.split("-").map(Number);
+    if (S.view === "week") {
+      const ws = S.weekStart || mondayOf(t), we = shiftDate(ws, 6);
+      const rel = ws === mondayOf(t) ? "This week" : ws === shiftDate(mondayOf(t), -7) ? "Last week" : "Week";
+      $("dayLabel").innerHTML = `${rel}<small>${esc(rangeLabel(ws, we))}</small>`;
+      $("nextDay").disabled = ws >= mondayOf(t);
+      $("prevDay").setAttribute("aria-label", "Previous week"); $("nextDay").setAttribute("aria-label", "Next week");
+      return;
+    }
+    $("prevDay").setAttribute("aria-label", "Previous day"); $("nextDay").setAttribute("aria-label", "Next day");
     const long = new Date(y, m - 1, d).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
     const rel = S.date === t ? "Today" : S.date === shiftDate(t, -1) ? "Yesterday" : long;
     $("dayLabel").innerHTML = `${esc(rel)}${rel !== long ? `<small>${esc(long)}</small>` : ""}`;
@@ -666,9 +722,135 @@ main .wrap { padding-block: 6px 200px; display: flex; flex-direction: column; ga
     </div>`;
   }
 
+  async function loadWeek() {
+    const ws = S.weekStart || (S.weekStart = mondayOf(todayStr())), we = shiftDate(ws, 6);
+    const seq = ++S.weekSeq;
+    if (!S.week || S.week.start !== ws) { S.weekState = "loading"; if (S.view === "week") renderWeek(); }
+    const [ent, wd] = await Promise.all([
+      sb.from("entries").select("eaten_on,kcal,kcal_low,kcal_high,protein").gte("eaten_on", ws).lte("eaten_on", we),
+      S.whoop?.connected ? sb.from("whoop_days").select("day,kcal,steps,ended_at").gte("day", ws).lte("day", we) : Promise.resolve({ data: [] }),
+    ]);
+    if (seq !== S.weekSeq) return;
+    if (ent.error) { S.weekState = "error"; if (S.view === "week") renderWeek(); return; }
+    S.week = buildWeek(ws, ent.data || [], wd.data || []);
+    S.weekState = "ready";
+    if (S.view === "week") renderWeek();
+  }
+
+  // One row per day. Finished days count toward the week; today shows "so far" and joins the totals tomorrow.
+  function buildWeek(ws, entries, wdays) {
+    const t = todayStr(), G = S.goals, target = G.net_target || 0;
+    const days = [];
+    for (let i = 0; i < 7; i++) {
+      const date = shiftDate(ws, i), food = entries.filter((e) => e.eaten_on === date);
+      const w = whoopDay(wdays.filter((r) => r.day === date));
+      const sum = (k) => food.reduce((a, e) => a + (Number(e[k]) || 0), 0);
+      const logged = food.length > 0, eaten = sum("kcal"), protein = sum("protein");
+      const burned = w?.burned ?? null;
+      const state = date > t ? "future" : date === t ? "today" : "done";
+      const net = logged && burned != null ? eaten - burned : null;
+      days.push({
+        date, state, logged, eaten, lo: sum("kcal_low"), hi: sum("kcal_high"), protein, burned, steps: w?.steps ?? null, net,
+        netHit: state === "done" && net != null ? net <= -target : null,
+        proteinHit: state === "future" || !logged ? null : protein >= G.protein ? true : state === "done" ? false : null,
+      });
+    }
+    const done = days.filter((d) => d.state === "done");
+    const counted = done.filter((d) => d.net != null);
+    const net = counted.reduce((a, d) => a + d.net, 0);
+    const pLogged = done.filter((d) => d.logged);
+    return {
+      start: ws, days, counted: counted.length, net, target: target * counted.length, fullTarget: target * 7,
+      netHit: counted.length ? net <= -(target * counted.length) : null,
+      inProgress: days.some((d) => d.state !== "done"),
+      pDays: pLogged.length, pHitDays: pLogged.filter((d) => d.proteinHit).length,
+      pAvg: pLogged.length ? pLogged.reduce((a, d) => a + d.protein, 0) / pLogged.length : null,
+      remaining: days.filter((d) => d.state !== "done").length,
+    };
+  }
+
+  const signed = (n) => `${n < 0 ? "−" : n > 0 ? "+" : ""}${fmt(Math.abs(n))}`;
+  const mark = (v, labelY = "Yes", labelN = "No") => v === true ? `<span class="mk y">${labelY}</span>` : v === false ? `<span class="mk n">${labelN}</span>` : `<span class="mk p">·</span>`;
+
+  function weekChart(W) {
+    const target = S.goals.net_target || 0;
+    const nets = W.days.map((d) => (d.state === "done" ? d.net : null));
+    const vals = nets.filter((v) => v != null);
+    const top = Math.max(0, ...vals), bot = Math.max(target, ...vals.map((v) => -v), 1);
+    // Drawn in a 700-wide box that scales to the screen; text sizes are set for that scale.
+    const w = 700, colW = w / 7, barW = 52, padT = 34, plotH = 170, labelGap = 34, dayRow = 40;
+    const H = padT + plotH + labelGap + dayRow;
+    const span = top + bot;
+    const y = (v) => padT + ((top - v) / (span || 1)) * plotH;
+    const y0 = y(0), yt = y(-target);
+    let g = "";
+    W.days.forEach((d, i) => {
+      const cx = colW * i + colW / 2, v = nets[i];
+      if (v != null) {
+        const yv = y(v), top_ = Math.min(yv, y0), h = Math.max(2, Math.abs(yv - y0));
+        const col = d.netHit ? "var(--accent)" : "var(--over)";
+        g += `<rect x="${cx - barW / 2}" y="${top_}" width="${barW}" height="${h}" rx="3" fill="${col}"></rect>`;
+        g += `<text class="v" x="${cx}" y="${v < 0 ? top_ + h + 24 : top_ - 8}" text-anchor="middle">${signed(Math.round(v))}</text>`;
+      } else if (d.state !== "future") {
+        g += `<text x="${cx}" y="${y0 - 10}" text-anchor="middle">${d.state === "today" ? "today" : "no data"}</text>`;
+      }
+      const dt = dObj(d.date);
+      g += `<text class="dl" x="${cx}" y="${H - 10}" text-anchor="middle"${d.state === "today" ? ' style="fill:var(--ink);font-weight:700"' : ""}>${dt.toLocaleDateString("en-GB", { weekday: "short" })} ${dt.getDate()}</text>`;
+    });
+    const tline = target ? `<line x1="0" x2="${w}" y1="${yt}" y2="${yt}" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="6 5"></line><text x="${w - 2}" y="${yt - 8}" text-anchor="end">target −${fmt(target)}</text>` : "";
+    return `<svg class="chart" viewBox="0 0 ${w} ${H}" role="img" aria-label="Daily net calories this week against your target">
+      <line x1="0" x2="${w}" y1="${y0}" y2="${y0}" stroke="var(--line)" stroke-width="1.5"></line>${tline}${g}</svg>`;
+  }
+
+  function renderWeek() {
+    const W = S.week, G = S.goals;
+    if (!W || (S.weekState === "loading" && W.start !== S.weekStart)) { $("main").innerHTML = `<div class="empty"><b>Loading your week...</b></div>`; return; }
+    if (S.weekState === "error") { $("main").innerHTML = `<div class="banner warn">Couldn't load this week. Check your connection and try again.</div>`; return; }
+    const whoop = !!S.whoop?.connected, target = G.net_target || 0;
+    const netPill = W.netHit == null ? `<span class="pill wait">No finished days yet</span>`
+      : W.netHit ? `<span class="pill hit">${W.inProgress ? "On pace" : "Goal hit"}</span>` : `<span class="pill miss">${W.inProgress ? "Behind pace" : "Goal missed"}</span>`;
+    const pHit = W.pAvg == null ? null : W.pAvg >= G.protein;
+    const pPill = pHit == null ? `<span class="pill wait">No finished days yet</span>` : pHit ? `<span class="pill hit">${W.inProgress ? "On track" : "Goal hit"}</span>` : `<span class="pill miss">${W.inProgress ? "Below goal so far" : "Goal missed"}</span>`;
+    let need = "";
+    if (whoop && W.inProgress && target && W.remaining) {
+      const gap = -W.fullTarget - W.net; // negative means still need more deficit
+      need = gap < 0 ? `To reach −${fmt(W.fullTarget)} by Sunday, average ${signed(Math.round(gap / W.remaining))} a day from here.` : `You're already past the full-week target of −${fmt(W.fullTarget)}.`;
+    }
+    let html = `<section class="wk-sum" aria-label="Week summary">
+      <h2>${rangeLabel(W.start, shiftDate(W.start, 6))}</h2>
+      <div class="sub2">${W.inProgress ? "Totals count finished days. Today joins tomorrow." : "Full week."}</div>
+      <div class="rule-md"></div>
+      <div class="goals2">
+        <div class="goal"><span class="lb">Net calories</span>
+          ${whoop ? `<span class="big num">${W.counted ? signed(Math.round(W.net)) : "–"}<small>kcal</small></span>
+          <span class="meta num">Target −${fmt(W.target)} for ${W.counted} day${W.counted === 1 ? "" : "s"}${W.counted < 7 ? ` (−${fmt(W.fullTarget)} for the week)` : ""}</span>${netPill}`
+          : `<span class="meta">Connect WHOOP in Settings to see net calories.</span>`}
+        </div>
+        <div class="goal"><span class="lb">Protein</span>
+          <span class="big num">${W.pAvg == null ? "–" : fmt(W.pAvg)}<small>g a day</small></span>
+          <span class="meta num">Goal ${fmt(G.protein)} g. Hit on ${W.pHitDays} of ${W.pDays} logged day${W.pDays === 1 ? "" : "s"}.</span>${pPill}
+        </div>
+      </div>
+      ${need ? `<p class="enote num" style="margin-top:4px">${need}</p>` : ""}
+      ${whoop ? weekChart(W) : ""}
+    </section>`;
+    html += `<ul class="days" aria-label="Days">${W.days.map((d) => {
+      const dt = dObj(d.date);
+      const mid = d.state === "future" ? "" : !d.logged ? `No food logged${d.burned != null ? ` · burned ${fmt(d.burned)}` : ""}`
+        : `<b class="num">${d.net != null ? `${signed(Math.round(d.net))} net` : `${fmt(d.eaten)} eaten`}</b><br><span class="num">Eaten ${fmt(d.eaten)}${d.burned != null ? ` · Burned ${fmt(d.burned)}${d.state === "today" ? " so far" : ""}` : ""}</span>`;
+      const pr = d.logged ? `<b class="num">${fmt(d.protein)} g</b><br>protein` : "";
+      const marks = d.state === "future" ? "" : `<div class="marks"><span>Net ${whoop ? (d.state === "today" ? `<span class="mk p">so far</span>` : mark(d.netHit)) : `<span class="mk p">·</span>`}</span><span>Protein ${d.state === "today" && d.proteinHit == null && d.logged ? `<span class="mk p">so far</span>` : mark(d.proteinHit)}</span></div>`;
+      return `<li class="${d.state === "today" ? "today" : d.state === "future" ? "future" : ""}"><button type="button" data-act="open-day" data-date="${d.date}"${d.state === "future" ? " disabled" : ""}>
+        <span class="dn"><b>${dt.toLocaleDateString("en-GB", { weekday: "short" })}</b><span>${dt.getDate()} ${dt.toLocaleDateString("en-GB", { month: "short" })}</span></span>
+        <span class="mid">${mid}</span><span class="pr">${pr}</span>${marks}</button></li>`;
+    }).join("")}</ul>`;
+    html += `<p class="enote">A day hits the net goal when you eat at least ${fmt(target)} kcal below your WHOOP burn, and the protein goal at ${fmt(G.protein)} g or more. The weekly protein goal uses your average across logged days. Tap a day to see what you ate.</p>`;
+    $("main").innerHTML = html;
+  }
+
   function render() {
     renderHeader();
-    if (S.view === "today") renderToday(); else if (S.view === "library") renderLibrary(); else renderSettings();
+    if (S.view === "week") renderWeek(); else if (S.view === "today") renderToday(); else if (S.view === "library") renderLibrary(); else renderSettings();
     renderDraft();
   }
 
@@ -679,7 +861,7 @@ main .wrap { padding-block: 6px 200px; display: flex; flex-direction: column; ga
     S.busy = true; $("go").disabled = true; $("cam").disabled = true; status(photo ? "Reading your photo..." : "Reading your meal...");
     try {
       const d = new Date();
-      const payload = { mode: "parse", text, today: todayStr(), now: nowTime(), viewing: S.date, weekday: d.toLocaleDateString("en-GB", { weekday: "long" }) };
+      const payload = { mode: "parse", text, today: todayStr(), now: nowTime(), viewing: S.view === "week" ? todayStr() : S.date, weekday: d.toLocaleDateString("en-GB", { weekday: "long" }) };
       if (photo) { payload.image = photo.data; payload.media_type = photo.media_type; }
       const res = await callFn("meal", payload);
       const items = res.items || [];
@@ -747,10 +929,10 @@ main .wrap { padding-block: 6px 200px; display: flex; flex-direction: column; ga
     $("commitBtn").disabled = true;
     const { error } = await sb.from("entries").insert(rows);
     if (error) { $("commitBtn").disabled = false; toast("Couldn't save. Check your connection and try again."); return; }
-    const other = rows.some((r) => r.eaten_on !== S.date);
+    const other = rows.some((r) => r.eaten_on !== (S.view === "week" ? todayStr() : S.date));
     S.draft = []; S.heard = ""; S.heardPhoto = null; renderDraft();
     toast(`Added ${rows.length} item${rows.length === 1 ? "" : "s"}${other ? " (some on another day)" : ""}.`);
-    loadDay();
+    loadDay(); if (S.view === "week") loadWeek();
   }
 
   async function deleteEntry(id) {
@@ -892,13 +1074,21 @@ main .wrap { padding-block: 6px 200px; display: flex; flex-direction: column; ga
     const b = e.target.closest("button[data-view]"); if (!b) return;
     S.view = b.dataset.view; S.editing = null; S.armDelete = null; S.returnTo = null; render();
     if (S.view === "today") loadDay();
+    if (S.view === "week") loadWeek();
   });
-  $("prevDay").onclick = () => { S.date = shiftDate(S.date, -1); S.armDelete = null; renderHeader(); loadDay(); };
-  $("nextDay").onclick = () => { if (S.date < todayStr()) { S.date = shiftDate(S.date, 1); S.armDelete = null; renderHeader(); loadDay(); } };
+  $("prevDay").onclick = () => {
+    if (S.view === "week") { S.weekStart = shiftDate(S.weekStart || mondayOf(todayStr()), -7); renderHeader(); loadWeek(); return; }
+    S.date = shiftDate(S.date, -1); S.armDelete = null; renderHeader(); loadDay();
+  };
+  $("nextDay").onclick = () => {
+    if (S.view === "week") { const t = mondayOf(todayStr()), ws = S.weekStart || t; if (ws < t) { S.weekStart = shiftDate(ws, 7); renderHeader(); loadWeek(); } return; }
+    if (S.date < todayStr()) { S.date = shiftDate(S.date, 1); S.armDelete = null; renderHeader(); loadDay(); }
+  };
 
   $("main").addEventListener("click", (e) => {
     const b = e.target.closest("[data-act]"); if (!b) return;
     const act = b.dataset.act, id = b.dataset.id;
+    if (act === "open-day") { S.date = b.dataset.date; S.view = "today"; render(); loadDay(); window.scrollTo(0, 0); return; }
     if (act === "toggle") { S.open.has(id) ? S.open.delete(id) : S.open.add(id); renderToday(); }
     else if (act === "del-entry") { if (S.armDelete === id) { S.armDelete = null; deleteEntry(id); } else { S.armDelete = id; renderToday(); } }
     else if (act === "save-entry") {
@@ -993,7 +1183,7 @@ main .wrap { padding-block: 6px 200px; display: flex; flex-direction: column; ga
     $("authView").hidden = true; $("appView").hidden = false;
     render();
     await Promise.all([loadFoods(), loadGoals()]);
-    loadDay();
+    loadDay(); loadWeek();
     callFn("meal", { mode: "status" }).then((c) => { S.config = c; setupVoice(); if (S.view !== "library") render(); }).catch(() => { setupVoice(); });
     const back = new URLSearchParams(location.search).get("whoop");
     if (back) {
@@ -1002,7 +1192,7 @@ main .wrap { padding-block: 6px 200px; display: flex; flex-direction: column; ga
     }
     try {
       S.whoop = await callFn("whoop", { action: "status" });
-      if (S.whoop.connected) { await loadWhoopAvg(); await loadDay(); whoopSync(false); }
+      if (S.whoop.connected) { await loadWhoopAvg(); await loadDay(); await loadWeek(); whoopSync(false); }
     } catch (_) { S.whoop = { configured: false, connected: false }; }
     if (S.view === "goals") renderSettings();
   }
