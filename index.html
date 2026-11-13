@@ -760,7 +760,10 @@ main .wrap { padding-block: 6px 200px; display: flex; flex-direction: column; ga
     const net = counted.reduce((a, d) => a + d.net, 0);
     const pLogged = done.filter((d) => d.logged);
     return {
-      start: ws, days, counted: counted.length, net, target: target * counted.length, fullTarget: target * 7,
+      start: ws, days, counted: counted.length, net, target: target * counted.length,
+      // Finished days with no data are left out, so they don't count toward the full-week target either.
+      fullDays: counted.length + days.filter((d) => d.state !== "done").length,
+      fullTarget: target * (counted.length + days.filter((d) => d.state !== "done").length),
       netHit: counted.length ? net <= -(target * counted.length) : null,
       inProgress: days.some((d) => d.state !== "done"),
       pDays: pLogged.length, pHitDays: pLogged.filter((d) => d.proteinHit).length,
@@ -823,7 +826,7 @@ main .wrap { padding-block: 6px 200px; display: flex; flex-direction: column; ga
       <div class="goals2">
         <div class="goal"><span class="lb">Net calories</span>
           ${whoop ? `<span class="big num">${W.counted ? signed(Math.round(W.net)) : "–"}<small>kcal</small></span>
-          <span class="meta num">Target −${fmt(W.target)} for ${W.counted} day${W.counted === 1 ? "" : "s"}${W.counted < 7 ? ` (−${fmt(W.fullTarget)} for the week)` : ""}</span>${netPill}`
+          <span class="meta num">Target −${fmt(W.target)} for ${W.counted} day${W.counted === 1 ? "" : "s"}${W.fullDays > W.counted ? ` (−${fmt(W.fullTarget)} across ${W.fullDays} days)` : ""}</span>${netPill}`
           : `<span class="meta">Connect WHOOP in Settings to see net calories.</span>`}
         </div>
         <div class="goal"><span class="lb">Protein</span>
